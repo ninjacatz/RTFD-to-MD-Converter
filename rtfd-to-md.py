@@ -1,25 +1,3 @@
-# ------README------
-# Converts Apple .rftd directories to Github Markdown
-# (preserving file attachments) from a selected
-# folder recursively. Utilizes pandoc .rtf to .md
-# conversion. Converted file will be named 'TXT.md'
-# in a folder with attachment files, identical to an
-# .rftd directory. Only .rtf files found in .rtfd 
-# directories will be converted to .md. Note that
-# most .rtf formatting will be erased. 
-#
-# Two extra features convert Apple .HEIC images
-# to a file extension of your choice utilizing 
-# imagemagick, and remove Apple's codec from
-# .mov videos to a file extension of your 
-# choice utilizing HandbrakeCLI (but this 
-# also converts non-Apple .mov videos). 
-# This makes Apple images and videos viewable
-# with Github Markdown. Only images and videos
-# found in .rtfd directories are converted.
-#
-# NOTE: Only works on Unix (no Windows for now)
-
 # -------------------------
 # |    !!!!WARNING!!!!    |
 # -------------------------
