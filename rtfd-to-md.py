@@ -29,23 +29,21 @@
 
 # ------User-Defined Variables-------
 # Directory to begin process:
-start_directory = r'/Users/ninjacats/Downloads/all'
+start_directory = r'/Users/ninjacats/Documents/Notes/Journal/000-Encoding/project/test'
 # Extra features
-do_image_convert = True
-image_convert_to = '.jpg'
+do_image_convert = False
+image_convert_extension = '.jpg'
 do_video_convert = False
-video_convert_to = '.mp4'
-# HandBrakeCLI executable required for video convert
-handbrakeCLI_path = r'/Users/ninjacats/Documents/Journal/000-Encoding/HandBrakeCLI'
+video_convert_extension = '.mp4'
 
 # ------Other Variables------
 rtf_extensions = ('.rtf', '.RTF')
 pandoc_command = [
     'pandoc',
     'source file (automatically generated)',
-    '-f', # from
-    'rtf', # rtf
-    '-t', # to
+    '-f',
+    'rtf',
+    '-t',
     'gfm', # github markdown
     '-o',
     'output file (automatically generated)'
@@ -59,12 +57,11 @@ imagemagick_command = [
 ]
 
 apple_video_extensions = ('.mov', '.MOV')
-handbrake_command = [
-    handbrakeCLI_path,
+ffmpeg_command = [
+    'ffmpeg',
     '-i',
-    'source file (automatically generated)',
-    '-o',
-    'output file (automatically generated)'
+    'source file path(will be known, do not change)',
+    'destination path(will be known, do not change)'
 ]
 
 # -----Begin Program-----
@@ -72,26 +69,24 @@ import subprocess
 import os
 
 def main():
-    doRecursionRtf(start_directory)
+    recursiveSearchRtf(start_directory)
     if do_image_convert or do_video_convert:
-        doRecursionImageAndVideo(start_directory)
-
+        recursiveSearchImageAndVideo(start_directory)
     print('Done!')
 
-def doRecursionRtf(directory):
+def recursiveSearchRtf(directory):
     for file in os.listdir(directory):
         file_path = os.path.join(directory, file)
 
         if file.endswith(rtf_extensions) and 'rtfd' in file_path:
             print(file_path)
-            converted_md_path = file_path.split('.')[0] + '/' + file_path.split('.')[1].split('/')[1] + '.md'
             doRtfConversion(file_path)
-            fixMdAttachments(converted_md_path)
+            fixMdAttachments(file_path.split('.')[0] + '/' + file_path.split('.')[1].split('/')[1] + '.md')
 
         elif os.path.isdir(file_path):
-            doRecursionRtf(file_path)
+            recursiveSearchRtf(file_path)
 
-def doRecursionImageAndVideo(directory):
+def recursiveSearchImageAndVideo(directory):
     for file in os.listdir(directory):
         file_path = os.path.join(directory, file)
             
@@ -105,23 +100,25 @@ def doRecursionImageAndVideo(directory):
         if former_rtfd_directory:
             if file.endswith(apple_image_extensions) and do_image_convert:
                 print(file_path)
-                converted_md_path = doHeicConversion(file_path, file)
-                fixMdHeicAttachments(converted_md_path)
+                doImageConversion(file_path, file)
+                fixImageAttachments(os.path.dirname(file_path) + '/TXT.md', file)
 
             elif file.endswith(apple_video_extensions) and do_video_convert:
                 print(file_path)
-                converted_md_path = doMovConversion(file_path, file)
-                fixMdMovAttachments(converted_md_path)
+                doVideoConversion(file_path, file)
+                fixVideoAttachments(os.path.dirname(file_path) + '/TXT.md', file)
 
         if os.path.isdir(file_path):
-            doRecursionImageAndVideo(file_path)
+            recursiveSearchImageAndVideo(file_path)
 
 def doRtfConversion(rtf_path):
     os.chdir(os.path.dirname(rtf_path))
     # set source file in command
     pandoc_command[1] = rtf_path
     # set output file in command
-    pandoc_command[7] = os.path.splitext(rtf_path)[0] + '.md'
+    # FIX!!!!! deliberately named TXT.md for recursiveSearchImageAndVideo function
+    pandoc_command[7] = os.path.dirname(rtf_path) + '/TXT.md'
+    print(pandoc_command[7])
     # perform conversion to markdown using pandoc
     subprocess.run(pandoc_command)
     # remove rtf file
@@ -151,7 +148,7 @@ def fixMdAttachments(md_path):
     with open(md_path, 'w') as f:
         f.writelines(data)
 
-def doHeicConversion(image_path, image):
+def doImageConversion(image_path, image):
     os.chdir(os.path.dirname(image_path))
     # rename original image
     os.rename(image, 'renamed-' + image)
@@ -159,61 +156,59 @@ def doHeicConversion(image_path, image):
     imagemagick_command[1] = os.path.join(os.path.dirname(image_path), 'renamed-' + image)
     # set original image name as destination file
     # with chosen extension
-    imagemagick_command[2] = os.path.join(os.path.dirname(image_path), image.split('.')[0] + image_convert_to)
+    imagemagick_command[2] = os.path.join(os.path.dirname(image_path), image.split('.')[0] + image_convert_extension)
     # perform encoding with imagemagick
     subprocess.run(imagemagick_command)
     # remove renamed image
     os.remove('renamed-' + image)
-    # return 'TXT.md' with new folder
-    # name for fixMdHeicAttachments function
-    return os.path.dirname(image_path) + '/TXT.md'
 
-def fixMdHeicAttachments(md_path):
-    data = ''
+def fixImageAttachments(md_path, image):
     with open(md_path, 'r') as f:
-        data = f.read()
-        # Example:
-        # CONVERT FROM: 
-        # ![alt text](grand%20haven.HEIC) 
-        # CONVERT TO:   
-        # ![alt text](grand%20haven.jpg)
-        for extension in apple_image_extensions:
-            data = data.replace(extension, image_convert_to)
+        data = f.readlines()
+
+    # Example:
+    # CONVERT FROM: 
+    # ![ATTACHMENT: grand haven.HIEC](grand%20haven.HEIC) 
+    # CONVERT TO:   
+    # ![ATTACHMENT: grand haven.jpg](grand%20haven.jpg)
+    # FIX!!! Must be FULL file name
+    # FIX!!!! this so it works when there is '%20'
+    for (index, line) in enumerate(data):
+        updated_line = line.replace(image, image.split('.')[0] + image_convert_extension)
+        # in cases where '%20' is used
+        image_20 = '%20'.join(image.split(' '))
+        data[index] = updated_line.replace(image_20, image_20.split('.')[0] + image_convert_extension)     
 
     with open(md_path, 'w') as f:
-        f.write(data)
+        f.writelines(data)
 
-def doMovConversion(video_path, video):
+def doVideoConversion(video_path, video):
     os.chdir(os.path.dirname(video_path))
     # rename original video
     os.rename(video, "renamed-" + video)
     # set renamed video as source file
-    handbrake_command[2] = os.path.join(os.path.dirname(video_path), 'renamed-' + video)
-    # set original video as output with extension
-    handbrake_command[4] = video_path.split('.')[0] + video_convert_to
-    # perform encoding with HandBrakeCLI
-    subprocess.run(handbrake_command)
+    ffmpeg_command[2] = os.path.join(os.path.dirname(video_path), 'renamed-' + video)
+    # set original video name as destination
+    ffmpeg_command[3] = video_path.split('.')[0] + video_convert_extension
+    # perform encoding with ffmpeg
+    subprocess.run(ffmpeg_command)
     # remove renamed original video
     os.remove('renamed-' + video)
-    # return 'TXT.md' with new folder
-    # name for fixMdMovAttachments function
-    return os.path.dirname(video_path) + '/TXT.md'
 
-def fixMdMovAttachments(md_path):
-    data = ''
+def fixVideoAttachments(md_path, video):
     with open(md_path, 'r') as f:
         data = f.readlines()
 
-    for extension in apple_video_extensions:
-        for (index, line) in enumerate(data):
-            # Example:
-            # CONVERT FROM: 
-            # ![alt text](grand%20haven.mov) 
-            # CONVERT TO:   
-            # ![alt text](grand%20haven.mp4)
-            if extension in line:
-                updated_line = line.replace(extension, video_convert_to)
-                data[index] = updated_line
+    # Example:
+    # CONVERT FROM: 
+    # ![ATTACHMENT: grand haven.MOV](grand%20haven.MOV) 
+    # CONVERT TO:   
+    # ![ATTACHMENT: grand haven.mp4](grand%20haven.mp4)
+    for (index, line) in enumerate(data):
+        updated_line = line.replace(video, video.split('.')[0] + video_convert_extension)
+        # in cases where '%20' is used
+        video_20 = '%20'.join(video.split(' '))
+        data[index] = updated_line.replace(video_20, video_20.split('.')[0] + video_convert_extension)     
 
     with open(md_path, 'w') as f:
         f.writelines(data)
