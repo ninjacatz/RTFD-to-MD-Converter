@@ -15,7 +15,7 @@ Converts Apple .rftd directories to Github Markdown (preserving file attachments
 
 Two extra features:
 - Convert Apple .HEIC images to a file extension of your choice
-- Convert Apple .mov videos to a file extension of your choice
+- Convert Apple .MOV videos to a file extension of your choice
 
 This allows for greater compatibility.
 
