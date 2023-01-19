@@ -2,9 +2,9 @@
 # Directory to begin process:
 start_directory = r''
 # Extra features
-do_image_convert = True
+do_image_convert = False
 image_convert_extension = '.jpg'
-do_video_convert = True
+do_video_convert = False
 video_convert_extension = '.mp4'
 
 # ------Other Variables------
@@ -38,7 +38,7 @@ ffmpeg_command = [
     'ffmpeg',
     '-i',
     'source file (automatically generated)',
-    'output file (automatically generated)'
+    'destination (automatically generated)'
 ]
 ffprobe_command = [
     'ffprobe',
@@ -84,7 +84,6 @@ def recursiveSearch(directory):
                 if rtfd_file.lower().endswith('.rtf'):
                     print('CONVERTING RTF: ', rtfd_file)
                     doRtfConversion(rtfd_file_path)
-                    # BUG!!! because md_path is the 'TXT.md' file only, it ignores any other .rtf files
                     fixMdAttachments(md_path)
 
             # now that the .rtf file is converted, convert images and videos
@@ -115,7 +114,7 @@ def doRtfConversion(rtf_path):
     # set source file in command
     pandoc_command[1] = rtf_path
     # set output file in command
-    pandoc_command[7] = os.path.join(os.path.dirname(rtf_path), os.path.basename(rtf_path) + '.md')
+    pandoc_command[7] = os.path.join(os.path.dirname(rtf_path), os.path.basename(rtf_path).split('.')[0] + '.md')
     # perform conversion to markdown using pandoc
     output = subprocess.run(pandoc_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     if output.returncode != 0:
