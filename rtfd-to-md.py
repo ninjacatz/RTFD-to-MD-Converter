@@ -9,9 +9,9 @@
 # Directory to begin process:
 start_directory = r''
 # Extra features
-do_image_convert = False
+do_image_convert = True
 image_convert_extension = '.jpg'
-do_video_convert = False
+do_video_convert = True
 video_convert_extension = '.mp4'
 
 # ------Other Variables------
@@ -27,18 +27,38 @@ pandoc_command = [
 ]
 
 apple_image_extensions = ('.heic', '.heif')
+apple_image_codecs = ['heif', 'heic', 'hevc']
 imagemagick_command = [
     'magick',
     'source file (automatically generated)',
     'output file (automatically generated)'
 ]
+identify_command = [
+    'identify',
+    '-format',
+    '\'%m\'',
+    'file path (automatically generated)'
+]
 
-apple_video_extensions = ('.mov', '.hevc')
+apple_video_extensions = ('.mov', '.hevc', '.hevf', '.mp4', '.aic', '.avci', '.m4a', '.prores')
+apple_video_codecs = ['aac', 'prores', 'h.264', 'aic', 'avc-intra', 'hevc']
 ffmpeg_command = [
     'ffmpeg',
     '-i',
-    'source file path(will be known, do not change)',
-    'destination path(will be known, do not change)'
+    'source file path(automatically generated)',
+    'destination path(automatically generated)'
+]
+ffprobe_command = [
+    'ffprobe',
+    '-v',
+    'error',
+    '-select_streams',
+    'a:0',
+    '-show_entries',
+    'stream=codec_name',
+    '-of',
+    'default=nw=1',
+    'file path (automatically generated)'
 ]
 
 # -----Begin Program-----
@@ -54,13 +74,14 @@ def recursiveSearch(directory):
         file_path = os.path.join(directory, file)
 
         if os.path.isdir(file_path) and file_path.lower().endswith('.rtfd'):
+            print('--------------------------')
             # .rtf file must be converted first because fixing .md attachments requires a converted .md file
             for rtfd_file in os.listdir(file_path):
                 rtfd_file_path = os.path.join(file_path, rtfd_file)
                 md_path = os.path.join(os.path.dirname(rtfd_file_path), 'TXT.md')
 
                 if rtfd_file.lower().endswith('.rtf'):
-                    print('RTF TO CONVERT: ', rtfd_file_path)
+                    print('CONVERTING RTF: ', rtfd_file_path)
                     doRtfConversion(rtfd_file_path)
                     # BUG!!! because md_path is the 'TXT.md' file only, it ignores any other .rtf files
                     fixMdAttachments(md_path)
@@ -71,13 +92,13 @@ def recursiveSearch(directory):
                     rtfd_file_path = os.path.join(file_path, rtfd_file)
                     md_path = os.path.join(os.path.dirname(rtfd_file), 'TXT.md')
 
-                    if rtfd_file.lower().endswith(apple_image_extensions) and do_image_convert:
-                        print('IMAGE TO CONVERT: ', rtfd_file_path)
+                    if rtfd_file.lower().endswith(apple_image_extensions) and imageCodecIsApple(rtfd_file_path) and do_image_convert:
+                        print('CONVERTING IMAGE: ', rtfd_file_path)
                         doImageConversion(rtfd_file_path, rtfd_file)
                         fixImageAttachments(md_path, rtfd_file)
 
-                    if rtfd_file.lower().endswith(apple_video_extensions) and do_video_convert:
-                        print("VIDEO TO CONVERT: ", rtfd_file_path)
+                    if rtfd_file.lower().endswith(apple_video_extensions) and videoCodecIsApple(rtfd_file_path) and do_video_convert:
+                        print("CONVERTING VIDEO: ", rtfd_file_path)
                         doVideoConversion(rtfd_file_path, rtfd_file)
                         fixVideoAttachments(md_path, rtfd_file)
 
@@ -95,7 +116,10 @@ def doRtfConversion(rtf_path):
     # set output file in command
     pandoc_command[7] = os.path.join(os.path.dirname(rtf_path), 'TXT.md')
     # perform conversion to markdown using pandoc
-    subprocess.run(pandoc_command)
+    output = subprocess.run(pandoc_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if output.returncode != 0:
+        print('ERROR: ', output.stderr.decode())
+        quit()
     # remove rtf file
     os.remove(rtf_path)
 
@@ -130,7 +154,10 @@ def doImageConversion(image_path, image):
     # with chosen extension
     imagemagick_command[2] = os.path.join(os.path.dirname(image_path), image.split('.')[0] + image_convert_extension)
     # perform encoding with imagemagick
-    subprocess.run(imagemagick_command)
+    output = subprocess.run(imagemagick_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if output.returncode != 0:
+        print('ERROR: ', output.stderr.decode())
+        quit()
     # remove renamed image
     os.remove('renamed-' + image)
 
@@ -162,7 +189,10 @@ def doVideoConversion(video_path, video):
     ffmpeg_command[3] = os.path.join(os.path.dirname(video_path), video.split('.')[0] + video_convert_extension)
     # perform encoding with imagemagick
     # perform encoding with ffmpeg
-    subprocess.run(ffmpeg_command)
+    output = subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if output.returncode != 0:
+        print('ERROR: ', output.stderr.decode())
+        quit()
     # remove renamed original video
     os.remove('renamed-' + video)
 
@@ -183,6 +213,28 @@ def fixVideoAttachments(md_path, video):
 
     with open(md_path, 'w') as f:
         f.writelines(data)
+
+def videoCodecIsApple(video_path):
+    ffprobe_command[9] = video_path
+    output = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if output.returncode != 0:
+        print('ERROR: ', output.stderr.decode())
+        quit()
+    for apple_video_codec in apple_video_codecs:
+        if apple_video_codec in output.stdout.decode().strip().lower():
+            return True
+    return False
+
+def imageCodecIsApple(image_path):
+    identify_command[3] = image_path
+    output = subprocess.run(identify_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if output.returncode != 0:
+        print("ERROR: ", output.stderr.decode())
+        quit()
+    for apple_image_codec in apple_image_codecs:
+        if apple_image_codec in output.stdout.decode().strip().lower():
+            return True
+    return False
 
 if __name__ == '__main__':
     main()
