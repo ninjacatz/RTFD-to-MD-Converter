@@ -16,7 +16,7 @@ pandoc_command = [
     '-f',
     'rtf',
     '-t',
-    'markdown',
+    'gfm',
     '-o',
     'output path (automatically generated, do not edit)'
 ]
