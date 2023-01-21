@@ -1,7 +1,7 @@
 # RTFD-to-MD-Converter
 
 ## Guide
-Set the user-defined variables and run the script. The converted files will be in a folder named "your_folder_name-converted-to-md" in the same directory
+Set the user-defined variables and run the script.
 
 Required command line programs:
 - pandoc
