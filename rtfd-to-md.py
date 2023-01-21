@@ -1,6 +1,8 @@
 # ------User-Defined Variables-------
 # Directory to begin process:
 start_directory = r''
+# Directory to put converted files:
+conversion_directory = r''
 # Extra features
 do_image_convert = False
 image_convert_extension = '.jpg'
@@ -10,35 +12,35 @@ video_convert_extension = '.mp4'
 # ------Other Variables------
 pandoc_command = [
     'pandoc',
-    'source file (automatically generated)',
+    'input path (automatically generated, do not edit)',
     '-f',
     'rtf',
     '-t',
-    'gfm', # github markdown
+    'markdown',
     '-o',
-    'output file (automatically generated)'
+    'output path (automatically generated, do not edit)'
 ]
 
 # FIX!!! hevc can be both image or video??
 apple_image_codecs = ['heif', 'heic']
 imagemagick_command = [
     'magick',
-    'source file (automatically generated)',
-    'output file (automatically generated)'
+    'input path (automatically generated, do not edit)',
+    'output path (automatically generated, do not edit)'
 ]
 identify_command = [
     'identify',
     '-format',
     '\'%m\'',
-    'file path (automatically generated)'
+    'input path (automatically generated, do not edit)'
 ]
 
 apple_video_codecs = ['aac', 'prores', 'aic', 'avc-intra']
 ffmpeg_command = [
     'ffmpeg',
     '-i',
-    'source file (automatically generated)',
-    'destination (automatically generated)'
+    'input path (automatically generated, do not edit)',
+    'output path (automatically generated, do not edit)'
 ]
 ffprobe_command = [
     'ffprobe',
@@ -50,32 +52,36 @@ ffprobe_command = [
     'stream=codec_name',
     '-of',
     'default=nw=1',
-    'file path (automatically generated)'
+    'input path (automatically generated, do not edit)'
 ]
 
 # -----Begin Program-----
 import subprocess
 import os
 import shutil
+import copy
 
 def main():
-    # create copy of directory: 'start_directory-converted-to-md'
-    copy_directory = os.path.join(os.path.dirname(start_directory), os.path.basename(start_directory) + '-converted-to-md')
-    if os.path.exists(copy_directory):
-        print('Please move or delete the converted files and restart')
-        quit()
+    if os.path.isdir(start_directory):
+        if not os.path.abspath(start_directory) == os.path.abspath(conversion_directory):
+            if not os.path.exists(conversion_directory):
+                shutil.copytree(start_directory, conversion_directory)
+                doRecursion(conversion_directory)
+                print('Done!')
+            else:
+                raise ValueError('conversion_directory already exists')
+        else:
+            raise ValueError('start_directory and conversion_directory are the same directory')
     else:
-        os.chdir(start_directory)
-        shutil.copytree(start_directory, copy_directory)
-        recursiveSearch(copy_directory)
-    print('Done!')
+        raise ValueError('start_directory is not a valid directory')
 
-def recursiveSearch(directory):
+def doRecursion(directory):
     for file in os.listdir(directory):
         file_path = os.path.join(directory, file)
 
         if os.path.isdir(file_path) and file_path.lower().endswith('.rtfd'):
             print('-----FOUND .RTFD DIRECTORY-----\n' + file_path)
+
             # .rtf file must be converted first because fixing .md attachments requires a converted .md file
             for rtfd_file in os.listdir(file_path):
                 rtfd_file_path = os.path.join(file_path, rtfd_file)
@@ -83,7 +89,7 @@ def recursiveSearch(directory):
 
                 if rtfd_file.lower().endswith('.rtf'):
                     print('CONVERTING RTF: ', rtfd_file)
-                    doRtfConversion(rtfd_file_path)
+                    doFileConversion(rtfd_file_path, pandoc_command, '.md')
                     fixMdAttachments(md_path)
 
             # now that the .rtf file is converted, convert images and videos
@@ -92,149 +98,101 @@ def recursiveSearch(directory):
                     rtfd_file_path = os.path.join(file_path, rtfd_file)
                     md_path = os.path.join(os.path.dirname(rtfd_file), 'TXT.md')
 
-                    if imageCodecIsApple(rtfd_file_path) and do_image_convert:
+                    if decodeFile(rtfd_file_path, identify_command, apple_image_codecs) and do_image_convert:
                         print('CONVERTING IMAGE: ', rtfd_file)
-                        doImageConversion(rtfd_file_path, rtfd_file)
-                        fixImageAttachments(md_path, rtfd_file)
-                        break;
+                        doFileConversion(rtfd_file_path, imagemagick_command, image_convert_extension)
+                        fixMdAttachments(md_path, rtfd_file, image_convert_extension)
+                        continue
 
-                    if videoCodecIsApple(rtfd_file_path) and do_video_convert:
+                    if decodeFile(rtfd_file_path, ffprobe_command, apple_video_codecs) and do_video_convert:
                         print("CONVERTING VIDEO: ", rtfd_file)
-                        doVideoConversion(rtfd_file_path, rtfd_file)
-                        fixVideoAttachments(md_path, rtfd_file)
+                        doFileConversion(rtfd_file_path, ffmpeg_command, video_convert_extension)
+                        fixMdAttachments(md_path, rtfd_file, video_convert_extension)
 
             # rename .rtfd directory to remove '.rtfd'
+            # FIX!!! what if directory/file WITHOUT '.rtfd' already exists?
             os.rename(file_path, file_path.replace('.rtfd', ''))
 
         elif os.path.isdir(file_path):
-            recursiveSearch(file_path)
+            doRecursion(file_path)
 
-def doRtfConversion(rtf_path):
-    os.chdir(os.path.dirname(rtf_path))
-    # set source file in command
-    pandoc_command[1] = rtf_path
-    # set output file in command
-    pandoc_command[7] = os.path.join(os.path.dirname(rtf_path), os.path.basename(rtf_path).split('.')[0] + '.md')
-    # perform conversion to markdown using pandoc
-    output = subprocess.run(pandoc_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+def doFileConversion(file_path, command, extension):
+    local_command = copy.deepcopy(command)
+    input_path_index = 0
+    output_path_index = 0
+    for (index, parameter) in enumerate(local_command):
+        if parameter.startswith('input path'):
+            input_path_index = index
+        elif parameter.startswith('output path'):
+            output_path_index = index
+    file = os.path.basename(file_path)
+    file_directory = os.path.dirname(file_path)
+
+    os.chdir(file_directory)
+    os.rename(file, 'renamed-' + file)
+    local_command[input_path_index] = os.path.join(file_directory, 'renamed-' + file)
+    local_command[output_path_index] = os.path.join(file_directory, file.split('.')[0] + extension)
+    output = subprocess.run(local_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     if output.returncode != 0:
-        print('ERROR pandoc: ', output.stderr.decode())
-        quit()
-    # remove rtf file
-    os.remove(rtf_path)
+        raise Exception(output.stderr.decode())
+    os.remove('renamed-' + file)
 
-def fixMdAttachments(md_path):
+def fixMdAttachments(md_path, file = None, extension = None):
     with open(md_path, 'r') as f:
         data = f.readlines()
 
     for (index, line) in enumerate(data):
+        # THIS IF STATEMENT IS TRIGGERED WHEN .rtf IS FIRST CONVERTED TO .md (and only 1 parameter is sent to function)
+        #
         # '¬' denotes a file attachment in .rtf when converted to .md
         #
         # CONVERT FROM: 
         # grand haven.jpg ¬   
         # CONVERT TO:   
         # ![alt text](grand%20haven.jpg)
-        if '¬' in line:
+        # FIX!!! what is the user is using the '¬' character in other places?
+        if ' ¬' in line:
             file_name = line.split('¬')[0].strip()
             file_name = '%20'.join(file_name.split(' '))
-            alt_text = '![ATTACHMENT: ' + line.split('.')[0] + '.' + line.split('.')[1].split(' ')[0] + ' ]('
-            updated_line = alt_text + file_name + ')'
+            alt_text = '![ATTACHMENT: ' + line.split('.')[0] + '.' + line.split('.')[1].split(' ')[0] + ' ]'
+            updated_line = alt_text + '(' + file_name + ')'
             data[index] = updated_line
+        elif file is not None and extension is not None:
+            # THIS ELIF STATEMENT FIXES FILE NAMES (if function is given 2nd & 3rd parameters)
+            #
+            # Example:
+            # CONVERT FROM: 
+            # ![grand haven.HEIC](grand%20haven.HEIC) 
+            # CONVERT TO:   
+            # ![grand haven.jpg](grand%20haven.jpg)
+            updated_line = line.replace(file, file.split('.')[0] + extension)
+            # in cases where '%20' is used
+            file_20 = '%20'.join(file.split(' '))
+            data[index] = updated_line.replace(file_20, file_20.split('.')[0] + extension) 
 
     with open(md_path, 'w') as f:
         f.writelines(data)
 
-def doImageConversion(image_path, image):
-    os.chdir(os.path.dirname(image_path))
-    # rename original image
-    os.rename(image, 'renamed-' + image)
-    # set renamed video as source file
-    imagemagick_command[1] = os.path.join(os.path.dirname(image_path), 'renamed-' + image)
-    # set original image name as destination file
-    # with chosen extension
-    imagemagick_command[2] = os.path.join(os.path.dirname(image_path), image.split('.')[0] + image_convert_extension)
-    # perform encoding with imagemagick
-    output = subprocess.run(imagemagick_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if output.returncode != 0:
-        print('ERROR imagemagick: ', output.stderr.decode())
-        quit()
-    # remove renamed image
-    os.remove('renamed-' + image)
+def decodeFile(file_path, command, codecs):
+    try:
+        local_command = copy.deepcopy(command)
+        input_path_index = 0
+        for (index, parameter) in enumerate(local_command):
+            if parameter.startswith('input path'):
+                input_path_index = index
 
-def fixImageAttachments(md_path, image):
-    with open(md_path, 'r') as f:
-        data = f.readlines()
+        local_command[input_path_index] = file_path
+        output = subprocess.run(local_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if output.returncode != 0:
+            raise Exception(output.stderr.decode())
 
-    # Example:
-    # CONVERT FROM: 
-    # ![grand haven.HEIC](grand%20haven.HEIC) 
-    # CONVERT TO:   
-    # ![grand haven.jpg](grand%20haven.jpg)
-    for (index, line) in enumerate(data):
-        updated_line = line.replace(image, image.split('.')[0] + image_convert_extension)
-        # in cases where '%20' is used
-        image_20 = '%20'.join(image.split(' '))
-        data[index] = updated_line.replace(image_20, image_20.split('.')[0] + image_convert_extension)     
+        for codec in codecs:
+            if codec in output.stdout.decode().lower():
+                return True
+        return False
 
-    with open(md_path, 'w') as f:
-        f.writelines(data)
-
-def doVideoConversion(video_path, video):
-    os.chdir(os.path.dirname(video_path))
-    # rename original video
-    os.rename(video, "renamed-" + video)
-    # set renamed video as source file
-    ffmpeg_command[2] = os.path.join(os.path.dirname(video_path), 'renamed-' + video)
-    # set original video name as destination
-    ffmpeg_command[3] = os.path.join(os.path.dirname(video_path), video.split('.')[0] + video_convert_extension)
-    # perform encoding with imagemagick
-    # perform encoding with ffmpeg
-    output = subprocess.run(ffmpeg_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if output.returncode != 0:
-        print('ERROR ffmpeg: ', output.stderr.decode())
-        quit()
-    # remove renamed original video
-    os.remove('renamed-' + video)
-
-def fixVideoAttachments(md_path, video):
-    with open(md_path, 'r') as f:
-        data = f.readlines()
-
-    # Example:
-    # CONVERT FROM: 
-    # ![grand haven.MOV](grand%20haven.MOV) 
-    # CONVERT TO:   
-    # ![grand haven.mp4](grand%20haven.mp4)
-    for (index, line) in enumerate(data):
-        updated_line = line.replace(video, video.split('.')[0] + video_convert_extension)
-        # in cases where '%20' is used
-        video_20 = '%20'.join(video.split(' '))
-        data[index] = updated_line.replace(video_20, video_20.split('.')[0] + video_convert_extension)     
-
-    with open(md_path, 'w') as f:
-        f.writelines(data)
-
-def videoCodecIsApple(video_path):
-    ffprobe_command[9] = video_path
-    output = subprocess.run(ffprobe_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if output.returncode != 0:
-        print('ERROR ffprobe: ', output.stderr.decode())
-        quit()
-    for apple_video_codec in apple_video_codecs:
-        if apple_video_codec in output.stdout.decode().strip().lower():
-            return True
-    return False
-
-def imageCodecIsApple(image_path):
-    identify_command[3] = image_path
-    output = subprocess.run(identify_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if output.returncode != 0:
-        print("ERROR identify: ", output.stderr.decode())
-        quit()
-    for apple_image_codec in apple_image_codecs:
-        if apple_image_codec in output.stdout.decode().strip().lower():
-            return True
-    return False
+    except:
+        print('Could not decode file \'' + os.path.basename(file_path) + '\' with ' + local_command[0])
 
 if __name__ == '__main__':
     main()
